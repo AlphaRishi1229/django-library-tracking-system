@@ -1,5 +1,7 @@
 import os
 from pathlib import Path
+
+from crontab import CronTab
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -111,7 +113,18 @@ CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND', 'redis://redis:6379/0
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
+CELERYBEAT_SCHEDULE = {
+    'my_scheduled_job': {
+        'task': 'library.tasks.check_overdue_loans', # the same goes in the task name
+        'schedule': CronTab("0 0 * * *"),
+    },
+}
 
 # Email Configuration
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'  # For development
 DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'admin@library.com')
+
+REST_FRAMEWORK = {
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.LimitOffsetPagination',
+    'PAGE_SIZE': 100
+}

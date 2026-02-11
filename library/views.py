@@ -1,18 +1,29 @@
-from rest_framework import viewsets, status
+from datetime import timedelta
+
+from rest_framework import generics, viewsets, status
 from rest_framework.response import Response
+from rest_framework.pagination import PageNumberPagination
 from .models import Author, Book, Member, Loan
 from .serializers import AuthorSerializer, BookSerializer, MemberSerializer, LoanSerializer
 from rest_framework.decorators import action
 from django.utils import timezone
 from .tasks import send_loan_notification
 
+
+class StandardResultsSetPagination(PageNumberPagination):
+    page_size = 100
+    page_size_query_param = 'page_size'
+    max_page_size = 1000
+    page_size_query_param = "page_query_param"
+
 class AuthorViewSet(viewsets.ModelViewSet):
     queryset = Author.objects.all()
     serializer_class = AuthorSerializer
 
 class BookViewSet(viewsets.ModelViewSet):
-    queryset = Book.objects.all()
+    queryset = Book.objects.select_related("author").all()
     serializer_class = BookSerializer
+    pagination_class = StandardResultsSetPagination
 
     @action(detail=True, methods=['post'])
     def loan(self, request, pk=None):
@@ -52,3 +63,41 @@ class MemberViewSet(viewsets.ModelViewSet):
 class LoanViewSet(viewsets.ModelViewSet):
     queryset = Loan.objects.all()
     serializer_class = LoanSerializer
+
+    @action(detail=True, methods=['post'])
+    def extend_due_date(self, request, pk=None):
+        """Extend the due date for the existing loan
+        """
+        request_data = request.data
+        current_date = timezone.now()
+        additional_days = request_data.get("additional_days")
+
+        try:
+            loan = Loan.objects.get(id=pk)
+        except Loan.DoesNotExist:
+            return Response({'error': 'Loan does not exist'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        if not loan.due_date:
+            loan.due_date = current_date + timedelta(days=additional_days)
+            loan.save()
+            response = {
+                "status": "Loan Updated Successfully",
+                "loan": loan.__dict__ 
+            }
+            return Response(response, status=status.HTTP_200_OK)
+
+        # Validate if additional_days is integer
+        if not isinstance(additional_days, int) or additional_days < 0:
+            return Response({'error': 'additional_days is not a positive integer'}, status=status.HTTP_400_BAD_REQUEST)
+        # Validate if the loan is not overdue
+        if loan.due_date < current_date:
+            return Response({'error': 'Due date already passed!'}, status=status.HTTP_400_BAD_REQUEST)
+
+        loan.due_date += timedelta(days=additional_days)
+        loan.save()
+
+        response = {
+            "status": "Loan Updated Successfully",
+            "loan": loan.__dict__ 
+        }
+        return Response(response, status=status.HTTP_200_OK)
